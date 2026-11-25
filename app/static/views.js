@@ -152,7 +152,7 @@ export async function messages(el, openChatId = null) {
   }
 
   async function refresh() {
-    const data = await H.api("/api/messages");
+    const data = await H.api("/api/chat");
     configured = data.configured !== false;
     chats = data.chats || [];
   }
@@ -175,7 +175,7 @@ export async function messages(el, openChatId = null) {
     let data;
     try {
       data = await H.api(
-        `/api/messages/thread?chat_id=${encodeURIComponent(watched)}`);
+        `/api/chat/thread?id=${encodeURIComponent(watched)}`);
     } catch {
       return;              // a tick that fails says nothing; the next may work
     }
@@ -366,7 +366,7 @@ export async function messages(el, openChatId = null) {
     thread.innerHTML = `<p class="msgs-wait">${STR.loading}</p>`;
     try {
       const data = await H.api(
-        `/api/messages/thread?chat_id=${encodeURIComponent(chatId)}`);
+        `/api/chat/thread?id=${encodeURIComponent(chatId)}`);
       title.textContent = data.title || chat.title || chatId;
       thread.innerHTML = (data.messages || []).map(bubble).join("");
       thread.scrollTop = thread.scrollHeight;
@@ -438,7 +438,7 @@ export async function messages(el, openChatId = null) {
     send.disabled = true;
     send.textContent = STR.msgsSending;
     try {
-      const data = await H.api("/api/messages/send",
+      const data = await H.api("/api/chat/send",
         { method: "POST", body: { chat_id: chatId, text } });
       input.value = "";
       note.textContent = "";

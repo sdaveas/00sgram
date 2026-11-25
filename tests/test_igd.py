@@ -14,14 +14,21 @@ def inbox_json(*threads) -> dict:
 
 
 def inbox_thread(ig_id="1742", title="Mary Levine", group=False,
-                 last_id="mid.3", last_ms=1_700_000_003_000, users=()):
+                 last_id="mid.3", last_ms=1_700_000_003_000, users=(),
+                 last_text=None, last_kind=None, last_sender=None):
+    node = {"id": last_id, "timestamp_ms": last_ms}
+    if last_text is not None:
+        node["text_body"] = last_text
+    if last_kind is not None:
+        node["content_type"] = last_kind
+    if last_sender is not None:
+        node["sender_fbid"] = last_sender
     return {"id": ig_id, "thread_title": title, "is_group": group,
             "last_activity_timestamp_ms": last_ms,
             "users": [{"interop_messaging_user_fbid": f,
                        "username": u, "full_name": u} for f, u in users],
             "viewer": {"interop_messaging_user_fbid": "me"},
-            "slide_messages": {"edges": [{"node": {
-                "id": last_id, "timestamp_ms": last_ms}}]}}
+            "slide_messages": {"edges": [{"node": node}]}}
 
 
 def thread_json(*messages, users=(("peer", "mary__levine"),), viewer="me") -> dict:
@@ -50,6 +57,23 @@ def test_the_inbox_is_threads_with_ids_and_real_timestamps():
     assert rows[0]["users"] == {"peer": "mary__levine"}
     assert rows[0]["viewer"] == "me"
     assert rows[0]["group"] is False
+
+
+def test_the_inbox_row_says_what_the_last_message_was():
+    """The list needs a preview and whose it is; the relay never reads these."""
+    bare = igd.thread_rows(inbox_json(inbox_thread(users=(("peer", "mary__levine"),))))
+    assert (bare[0]["last_text"], bare[0]["last_kind"], bare[0]["last_mine"]) == \
+        ("", "", False)
+
+    ours = igd.thread_rows(inbox_json(inbox_thread(
+        users=(("peer", "mary__levine"),), last_text="γεια", last_kind="TEXT",
+        last_sender="me")))
+    assert (ours[0]["last_text"], ours[0]["last_kind"], ours[0]["last_mine"]) == \
+        ("γεια", "text", True)
+
+    photo = igd.thread_rows(inbox_json(inbox_thread(
+        users=(("peer", "mary__levine"),), last_kind="MEDIA")))
+    assert photo[0]["last_text"] == "[φωτογραφία]"
 
 
 def test_threads_are_newest_activity_first():

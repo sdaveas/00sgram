@@ -144,6 +144,11 @@ class SendMessageBody(BaseModel):
     text: str
 
 
+class ChatSendBody(BaseModel):
+    chat_id: str
+    text: str
+
+
 class SettingsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -487,18 +492,128 @@ def create_app(config: Config | None = None) -> FastAPI:
         with app.state.syncer.borrow() as provider:
             return {"threads": igd.Direct(provider, conn).threads()}
 
-    @app.get("/api/relay/thread")
-    def relay_thread(ig_id: str, a: Auth = Depends(auth)):
-        """One conversation's messages, straight from Instagram's JSON."""
-        with app.state.syncer.borrow() as provider:
-            return {"ig_id": ig_id,
-                    "messages": igd.Direct(provider, conn).messages(ig_id)}
+    # ------------------------------------------------- chat (instagram, local)
+    #
+    # The Messages view talks to Instagram through the relay's own reader, and
+    # SQLite answers the rest: the list is cached 20 s, a thread 8 s. Send is the
+    # relay's proven path — the inbox name into the real conversation.
 
-    @app.get("/api/relay/threads")
-    def relay_threads(a: Auth = Depends(auth)):
-        """The conversations Instagram itself reports, from its own JSON."""
+    def _others(row: dict) -> list[str]:
+        """The participants that are not us, in the inbox's own order."""
+        viewer = row.get("viewer") or ""
+        return [u for fbid, u in (row.get("users") or {}).items()
+                if fbid != viewer and u]
+
+    def _chat_title(row: dict) -> str:
+        title = (row.get("name") or "").strip()
+        if title:
+            return title
+        return ", ".join(_others(row)[:3]) or "Conversation"
+
+    def _send_name(row: dict) -> str:
+        """Who a message goes to: the thread's title, else the one other person."""
+        others = _others(row)
+        return (row.get("name") or "").strip() or (others[0] if others else "")
+
+    def _chat_row(thread_id: str) -> dict:
+        cached = store.meta_json(conn, "ig_chat_list", {}) or {}
+        for row in cached.get("rows") or []:
+            if str(row.get("id")) == str(thread_id):
+                return row
+        return {}
+
+    def _chat_kind(row: dict) -> str:
+        return "group" if row.get("group") else "dm"
+
+    @app.get("/api/chat")
+    def chat_list(a: Auth = Depends(auth)):
+        """The DM list from Instagram's JSON, cached; a stale list beats a 500."""
+        cached = store.meta_json(conn, "ig_chat_list", {}) or {}
+        rows = cached.get("rows")
+        now = int(time.time())
+        stale = False
+        if rows is None or now - int(cached.get("at") or 0) > 20:
+            try:
+                with app.state.syncer.borrow() as provider:
+                    rows = igd.Direct(provider, conn).threads()
+                store.set_meta_json(conn, "ig_chat_list", {"at": now, "rows": rows})
+            except Exception:               # noqa: BLE001 — a scrape is never a 500
+                rows, stale = rows or [], True
+        if conn.execute("SELECT COUNT(*) AS n FROM ig_read").fetchone()["n"] == 0:
+            # The very first list seeds every thread as read: a fresh install
+            # must not greet the reader with forty unread dots for conversations
+            # that were old news before the app existed.
+            store.ig_seed_read(conn, [r["id"] for r in rows], now)
+        chats = [{
+            "chat_id": row["id"],
+            "title": _chat_title(row),
+            "kind": _chat_kind(row),
+            "unread": 1 if not row.get("last_mine")
+                      and float(row.get("last_ts") or 0) > store.ig_read_at(conn, row["id"])
+                      else 0,
+            "last_at": row.get("last_ts"),
+            "last_text": row.get("last_text") or "",
+            "last_kind": row.get("last_kind") or "",
+        } for row in rows]
+        body = {"configured": True, "chats": chats}
+        if stale:
+            body["stale"] = True
+        return body
+
+    @app.get("/api/chat/thread")
+    def chat_thread(id: str, a: Auth = Depends(auth)):
+        """One conversation from the store; Instagram at most once per 8 s."""
+        now = int(time.time())
+        key = f"ig_chat_fetch:{id}"
+        fetched_at = int(store.meta_json(conn, key, 0) or 0)
+        if now - fetched_at >= 8:
+            try:
+                with app.state.syncer.borrow() as provider:
+                    fetched = igd.Direct(provider, conn).messages(id)
+            except Exception as exc:        # noqa: BLE001 — the store may answer
+                if not fetched_at:
+                    # Never read and Instagram will not talk: an empty thread
+                    # would claim the conversation does not exist.
+                    raise ApiError("provider", 502, str(exc))
+                fetched = None
+            if fetched is not None:
+                store.save_ig_msgs(conn, id, fetched)
+                store.set_meta_json(conn, key, now)
+        store.ig_mark_read(conn, id, now)
+        row = _chat_row(id)
+        return {"chat_id": id, "title": _chat_title(row), "kind": _chat_kind(row),
+                "messages": [{**m, "links": [m["url"]] if m["url"] else []}
+                             for m in store.ig_msgs(conn, id)]}
+
+    @app.post("/api/chat/send")
+    def chat_send(body: ChatSendBody, a: Auth = Depends(auth)):
+        """Type into the real conversation, then store the bubble we made."""
+        text = body.text.strip()
+        if not text:
+            raise ApiError("bad_request", 400, "the message is empty")
+        row = _chat_row(body.chat_id)
+        name = _send_name(row)
+        if not name:
+            # Writing to an empty name would be sending into the void; the list
+            # has not been read for this id, so there is no recipient.
+            raise ApiError("not_found", 404, "no such chat")
         with app.state.syncer.borrow() as provider:
-            return {"threads": igd.Direct(provider, conn).threads()}
+            if not hasattr(provider, "send_dm"):
+                raise ApiError("unsupported", 400,
+                               "this provider cannot send messages")
+            try:
+                ok = provider.send_dm(name, text)
+            except Exception as exc:        # noqa: BLE001 — one attempt, no retry
+                raise ApiError("send_failed", 502, str(exc))
+        if not ok:
+            raise ApiError("send_failed", 502, "instagram refused the message")
+        at = int(time.time())
+        msg_id = f"local-{int(time.time() * 1000)}"
+        store.save_ig_msgs(conn, body.chat_id, [{
+            "id": msg_id, "ts": at, "mine": True, "sender": "", "text": text,
+            "kind": "text", "url": ""}])
+        return {"message": {"msg_id": msg_id, "at": at, "mine": True, "who": "",
+                            "text": text, "kind": "text", "links": []}}
 
     @app.get("/api/inbox/raw")
     def inbox_raw(a: Auth = Depends(auth)):

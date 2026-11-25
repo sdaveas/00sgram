@@ -24,7 +24,7 @@ APP_KEPT = ("flushSeen", "markSeenLocally", "views.messages",
 # What the two screens are made of, by name. A rename here is a rename in the
 # screen, which is the point of pinning code markers rather than copy.
 VIEWS_KEPT = ("mutedPref", "rememberMute", "blankDeck", "beginSession",
-              "/api/messages", "/api/messages/thread", "/api/messages/send",
+              "/api/chat", "/api/chat/thread?id=", "/api/chat/send",
               "/api/resolve", "data-chat", "data-resolve", "mthread",
               'class="msgs"', "login")
 
@@ -132,8 +132,10 @@ def test_the_program_writes_only_seen(client):
     assert '/done' in browse_js, "leaving a story card finishes that account"
     # The card's way out to Instagram is a plain outbound link, not a write.
     assert 'rel="noopener"' in views_js, "the link out carries rel=noopener"
-    assert '/api/messages/send' in views_js, \
+    assert '/api/chat/send' in views_js, \
         "the chat screen sends a message, and that is its only POST"
+    assert '/api/messages' not in views_js, \
+        "the chat screen talks to Instagram's own routes, not the Telegram mirror"
 
 
 def test_no_dead_vocabulary(client):

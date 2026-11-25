@@ -133,6 +133,21 @@ CREATE TABLE IF NOT EXISTS ig_threads (
   title TEXT, created_at INTEGER NOT NULL
 );
 
+-- The Messages view is the chat: one row per Instagram message, so the thread
+-- costs SQLite per tick and Instagram only once per throttle window.
+CREATE TABLE IF NOT EXISTS ig_msgs (
+  thread_id TEXT NOT NULL, id TEXT NOT NULL, ts INTEGER NOT NULL,
+  mine INTEGER NOT NULL DEFAULT 0, sender TEXT, text TEXT, kind TEXT, url TEXT,
+  PRIMARY KEY (thread_id, id)
+);
+CREATE INDEX IF NOT EXISTS ig_msgs_thread ON ig_msgs (thread_id, ts);
+
+-- The read watermark per conversation. Instagram never learns about it: opening
+-- a thread here clears a dot, it does not send a read receipt.
+CREATE TABLE IF NOT EXISTS ig_read (
+  thread_id TEXT PRIMARY KEY, at INTEGER NOT NULL
+);
+
 -- Which Telegram message stands for which Instagram message. Written when the
 -- relay sends, read when a reaction arrives in Telegram: a reaction names a
 -- Telegram message, and Instagram wants the id of the Instagram one.
@@ -1017,6 +1032,62 @@ def save_ig_thread(conn: sqlite3.Connection, name: str, thread_id: int,
             (name, int(thread_id), title or name,
              int(now if now is not None else time.time()),
              str(ig_id or "")))
+
+
+# ------------------------------------------------------------ instagram chat
+
+
+def save_ig_msgs(conn: sqlite3.Connection, thread_id: str,
+                 rows: Iterable[dict]) -> None:
+    """Upsert a thread's rows. A message already stored is not rewritten."""
+    with write(conn):
+        for row in rows:
+            conn.execute(
+                "INSERT OR IGNORE INTO ig_msgs (thread_id, id, ts, mine, sender,"
+                " text, kind, url) VALUES (?,?,?,?,?,?,?,?)",
+                (str(thread_id), str(row["id"]), int(row["ts"]),
+                 int(bool(row.get("mine"))), row.get("sender") or "",
+                 row.get("text") or "", row.get("kind") or "",
+                 row.get("url") or ""))
+
+
+def ig_msgs(conn: sqlite3.Connection, thread_id: str, limit: int = 300) -> list[dict]:
+    """The newest `limit` messages, oldest first, in the screen's own shape."""
+    rows = conn.execute(
+        "SELECT * FROM (SELECT * FROM ig_msgs WHERE thread_id=?"
+        " ORDER BY ts DESC, id DESC LIMIT ?) ORDER BY ts ASC, id ASC",
+        (str(thread_id), limit))
+    return [{"msg_id": r["id"], "at": int(r["ts"]), "mine": bool(r["mine"]),
+             "who": r["sender"] or "", "text": r["text"], "kind": r["kind"],
+             "url": r["url"]} for r in rows]
+
+
+def ig_mark_read(conn: sqlite3.Connection, thread_id: str,
+                 at: int | None = None) -> None:
+    """The watermark only moves forward: an older open is not a new message."""
+    at = int(at if at is not None else time.time())
+    with write(conn):
+        conn.execute(
+            "INSERT INTO ig_read (thread_id, at) VALUES (?,?)"
+            " ON CONFLICT(thread_id) DO UPDATE SET at=MAX(ig_read.at, excluded.at)",
+            (str(thread_id), at))
+
+
+def ig_read_at(conn: sqlite3.Connection, thread_id: str) -> int:
+    """0 for a thread never seeded: every message in it reads as new."""
+    row = conn.execute("SELECT at FROM ig_read WHERE thread_id=?",
+                       (str(thread_id),)).fetchone()
+    return int(row["at"]) if row else 0
+
+
+def ig_seed_read(conn: sqlite3.Connection, thread_ids: Iterable[str],
+                 at: int | None = None) -> None:
+    """Insert-if-absent: seeding never overwrites a real watermark."""
+    at = int(at if at is not None else time.time())
+    with write(conn):
+        for thread_id in thread_ids:
+            conn.execute("INSERT OR IGNORE INTO ig_read (thread_id, at) VALUES (?,?)",
+                         (str(thread_id), at))
 
 
 # ------------------------------------------------------------------ whatsapp

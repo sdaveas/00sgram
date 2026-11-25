@@ -80,20 +80,46 @@ def thread_rows(js: dict) -> list[dict]:
         thread = (((edge or {}).get("node") or {}).get("as_ig_direct_thread")) or {}
         if not thread.get("id"):
             continue
+        viewer = str((thread.get("viewer") or {}).get("interop_messaging_user_fbid") or "")
         last_edges = ((thread.get("slide_messages") or {}).get("edges")) or []
-        last = ((last_edges[0] or {}).get("node")) if last_edges else {}
+        last = (((last_edges[0] or {}).get("node")) if last_edges else {}) or {}
+        text, kind, _url = _body(last)
         out.append({
             "id": str(thread["id"]),
             "name": (thread.get("thread_title") or "").strip(),
             "group": bool(thread.get("is_group")),
             "users": _users(thread),
-            "viewer": str((thread.get("viewer") or {}).get("interop_messaging_user_fbid") or ""),
-            "last_id": str((last or {}).get("id") or ""),
-            "last_ts": int((last or {}).get("timestamp_ms")
+            "viewer": viewer,
+            "last_id": str(last.get("id") or ""),
+            "last_ts": int(last.get("timestamp_ms")
                            or thread.get("last_activity_timestamp_ms") or 0) / 1000,
+            # The list row's own preview; the relay ignores these three.
+            "last_text": text,
+            "last_kind": kind,
+            "last_mine": bool(viewer) and str(last.get("sender_fbid") or "") == viewer,
         })
     out.sort(key=lambda t: t["last_ts"], reverse=True)
     return out
+
+
+def _body(node: dict) -> tuple[str, str, str]:
+    """One message node -> (text, kind, url). No text and no url means nothing to show."""
+    content = node.get("content") or {}
+    xma = content.get("xma") or {}
+    kind = (node.get("content_type") or "").upper()
+    text = (node.get("text_body") or "").strip()
+    url = _clean_url(xma.get("target_url"))
+    if not text:
+        text = (xma.get("caption_body_text") or xma.get("title_text") or "").strip()
+        # Instagram prefixes a shared post's title with its author's handle
+        # ("mary__levine το caption"). The header already carries it, so the
+        # prefix is furniture — and it is the exact string, not a guess.
+        who = (xma.get("header_title_text") or "").strip()
+        if who and text.lower().startswith(who.lower() + " "):
+            text = text[len(who):].lstrip()
+    if not text and kind in KINDS:
+        text = KINDS[kind]
+    return text, kind.lower(), url
 
 
 def message_rows(js: dict) -> list[dict]:
@@ -109,22 +135,7 @@ def message_rows(js: dict) -> list[dict]:
         if not node.get("id"):
             continue
         sender = str(node.get("sender_fbid") or "")
-        content = node.get("content") or {}
-        xma = content.get("xma") or {}
-        kind = (node.get("content_type") or "").upper()
-        text = (node.get("text_body") or "").strip()
-        url = _clean_url(xma.get("target_url"))
-        if not text:
-            text = (xma.get("caption_body_text") or xma.get("title_text") or "").strip()
-            # Instagram prefixes a shared post's title with its author's handle
-            # ("mary__levine το caption"). The header already carries it, so the
-            # prefix is furniture — and it is the exact string, not a guess.
-            who = (xma.get("header_title_text") or "").strip()
-            if who and text.lower().startswith(who.lower() + " "):
-                text = text[len(who):].lstrip()
-        label = KINDS.get(kind, "")
-        if not text and kind in KINDS:
-            text = label
+        text, _kind, url = _body(node)
         if not text and not url:
             # A placeholder ("Message unavailable") is Instagram saying it has
             # nothing to show; relaying the wrapper would be noise.
