@@ -142,6 +142,12 @@ CREATE TABLE IF NOT EXISTS ig_msgs (
 );
 CREATE INDEX IF NOT EXISTS ig_msgs_thread ON ig_msgs (thread_id, ts);
 
+-- The newest message id each thread's list row last showed us. It is the only
+-- reason the sync loop knows a conversation changed without opening it.
+CREATE TABLE IF NOT EXISTS ig_thread_last (
+  thread_id TEXT PRIMARY KEY, last_id TEXT NOT NULL
+);
+
 -- The read watermark per conversation. Instagram never learns about it: opening
 -- a thread here clears a dot, it does not send a read receipt.
 CREATE TABLE IF NOT EXISTS ig_read (
@@ -1071,6 +1077,35 @@ def ig_mark_read(conn: sqlite3.Connection, thread_id: str,
             "INSERT INTO ig_read (thread_id, at) VALUES (?,?)"
             " ON CONFLICT(thread_id) DO UPDATE SET at=MAX(ig_read.at, excluded.at)",
             (str(thread_id), at))
+
+
+def ig_last_ids(conn: sqlite3.Connection) -> dict[str, str]:
+    """The thread -> newest message id map the sync loop keeps."""
+    return {r["thread_id"]: r["last_id"]
+            for r in conn.execute("SELECT thread_id, last_id FROM ig_thread_last")}
+
+
+def set_ig_last_id(conn: sqlite3.Connection, thread_id: str, last_id: str) -> None:
+    with write(conn):
+        conn.execute(
+            "INSERT INTO ig_thread_last (thread_id, last_id) VALUES (?,?)"
+            " ON CONFLICT(thread_id) DO UPDATE SET last_id=excluded.last_id",
+            (str(thread_id), str(last_id)))
+
+
+def ig_changes(conn: sqlite3.Connection, since: int, limit: int = 50) -> list[dict]:
+    """Every stored inbound message at or after `since`, oldest first.
+
+    The relay's feed. `since` is inclusive on purpose: a cursor made of the last
+    `at` re-reads that second's rows, and the consumer dedupes by msg_id.
+    """
+    rows = conn.execute(
+        "SELECT thread_id, id, ts, mine, sender, text, kind, url FROM ig_msgs"
+        " WHERE mine=0 AND ts >= ? ORDER BY ts ASC, id ASC LIMIT ?",
+        (int(since), int(limit)))
+    return [{"thread_id": r["thread_id"], "msg_id": r["id"], "at": int(r["ts"]),
+             "mine": bool(r["mine"]), "who": r["sender"] or "", "text": r["text"],
+             "kind": r["kind"], "url": r["url"]} for r in rows]
 
 
 def ig_read_at(conn: sqlite3.Connection, thread_id: str) -> int:

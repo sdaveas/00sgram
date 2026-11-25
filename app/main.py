@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import igd, iglink, recognize, store
+from .chat_sync import start_chat_sync
 from .config import Config
 from .media import MediaStore, unavailable
 from .provider import ProviderError, SessionExpired
@@ -181,6 +182,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         # on a full cache has to bite at boot, not at the next picture.
         _app.state.media.evict()
         _thread, stop = start_scheduler(cfg, conn, _app.state.syncer)
+        chat_sync = start_chat_sync(cfg, conn, _app.state.syncer)
         poll = start_poller(cfg, conn)
         relay = start_relay(cfg, conn, _app.state.syncer)
         outbox = start_outbox(cfg, conn, _app.state.syncer)
@@ -192,6 +194,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             yield
         finally:
             stop.set()
+            chat_sync.set()
             poll.set()
             relay.set()
             outbox.set()
@@ -559,6 +562,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         if stale:
             body["stale"] = True
         return body
+
+    @app.get("/api/chat/changes")
+    def chat_changes(since: int | None = None, limit: int = 50,
+                     a: Auth = Depends(auth)):
+        """The relay's feed: inbound messages since a cursor, store only."""
+        since = int(since if since is not None else time.time() - 3600)
+        limit = max(1, min(200, limit))
+        messages = store.ig_changes(conn, since, limit)
+        return {"messages": messages,
+                "cursor": max((m["at"] for m in messages), default=since)}
 
     @app.get("/api/chat/thread")
     def chat_thread(id: str, a: Auth = Depends(auth)):

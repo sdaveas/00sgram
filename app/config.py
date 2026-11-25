@@ -102,6 +102,8 @@ class Config:
     wa_relay_send: bool = False
     wa_relay_fast: int = 20     # seconds between looks while a chat is active
     wa_relay_slow: int = 90     # and while nothing is happening
+    # The chat sync loop: seconds between walks of the DM list. 0 turns it off.
+    chat_sync_interval: int = 120
     # Opening a conversation to read the shared post behind a preview. That is a
     # read receipt on Instagram, and the only way to relay a link.
 
@@ -159,6 +161,7 @@ class Config:
             wa_relay_send=_bool(env, "WA_RELAY_SEND", False),
             wa_relay_fast=_int(env, "WA_RELAY_FAST", 20, 5, 3600),
             wa_relay_slow=_int(env, "WA_RELAY_SLOW", 90, 10, 86400),
+            chat_sync_interval=_int(env, "CHAT_SYNC_INTERVAL", 120, 0, 86400),
         )
 
     def seed_values(self) -> dict[str, object]:
