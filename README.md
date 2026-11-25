@@ -1,5 +1,8 @@
 # 00sgram
 
+**Instagram, if it looked like it did in the 2000s:** no ads, no recommendations,
+nothing else pulling at you. Just your friends' feed.
+
 A distraction-free, self-hosted Instagram client. One card at a time — today's
 posts, the stories you have not watched, and an end. No algorithm, no infinite
 scroll, no likes to chase while you were only looking for one thing.
