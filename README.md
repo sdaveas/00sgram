@@ -22,7 +22,7 @@ refuses those for new sessions anyway).
 | «Παλαιότερα» | Older posts, by day, from the end of the deck. Only cards whose media are actually cached. |
 | Media | Images and videos proxied through the app and cached on disk, with a budget (default 1 GB, oldest evicted first). |
 | Sync | Every 30 min, plus a weekly history backfill. |
-| Messages | **Experimental.** Instagram DMs mirrored to a Telegram group and back. See below. |
+| Messages | Your Instagram DMs, read and sent in the app. The Telegram mirror is an optional extra. |
 
 The interface is in Greek; the copy lives in one table
 (`app/static/str.js`).
@@ -124,23 +124,44 @@ The ones that matter:
 | `MEDIA_BUDGET_MB` | `800` | Disk ceiling for cached media; the oldest files go first. |
 | `MEDIA_RETENTION_DAYS` | `30` | Nothing older is kept, whatever the budget says. |
 | `VIEW_THRESHOLD_MS` | `1000` | How long a story segment must stay on screen to count as watched. |
+| `CHAT_SYNC_INTERVAL` | `120` | Seconds between DM store refreshes. `0` turns it off. |
 
-## Messages (experimental)
+## Messages
 
-The Telegram half of this project is usable but not finished: it mirrors
-Instagram conversations into a Telegram forum group (one topic per person) and
-sends your replies back.
+The Messages screen is a real chat: the conversation list, the thread and the
+composer all read and write Instagram directly. A background loop keeps the
+store fresh (only conversations whose newest message changed) and Instagram is
+asked at most once per throttle window, so the screen costs SQLite, not a
+browser navigation.
 
-It needs a bot (`TELEGRAM_TOKEN` from @BotFather) and the id of a forum group the
-bot is in (`TELEGRAM_RELAY_CHAT`). The app only ever speaks in that one chat —
-anything else that messages the bot is dropped before it is stored.
+What it does **not** do yet: attachments (a shared post arrives as its
+permalink), and read receipts on Instagram — opening a thread clears the dot
+here, not on your phone.
 
-What it does **not** do yet: attachment forwarding, read state both ways, more
-than one platform. It will be split into its own service; treat it as a preview.
+### The Telegram mirror (optional, experimental)
 
-Two things worth knowing before you turn it on: opening a conversation registers
-a read receipt on Instagram, and answering from the portal sends as the bot, not
-as you.
+The same conversations can be mirrored into a Telegram forum group — one topic
+per person — and answered from there. It runs as its **own service**, not inside
+the app: `python -m app.relayd` talks HTTP to the app and keeps its own SQLite,
+so the core never learns what a Telegram topic is.
+
+```sh
+# .env: TELEGRAM_TOKEN=..., TELEGRAM_RELAY_CHAT=-100...
+docker compose --profile relay up -d
+```
+
+On an existing install, adopt the topics the old in-process relay made, or the
+service will create a second set:
+
+```sh
+docker compose --profile relay run --rm \
+  -v "$PWD/data:/appdata:ro" relay \
+  python -m app.relayd --import-topics /appdata/00sgram.sqlite3
+```
+
+What it does **not** do yet: reactions, history backfill, attachments. Anything
+that messages the bot outside that one chat is dropped before it is stored;
+replies sent from Telegram go out as you, through the same browser session.
 
 ## Development
 
