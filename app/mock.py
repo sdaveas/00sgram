@@ -4,12 +4,17 @@ Emits real bytes, not placeholder URLs: JPEGs drawn with Pillow and a tiny MP4
 embedded below as base64 (generated once with
 `ffmpeg -f lavfi -i color=c=black:s=320x568:d=3:r=10 -b:v 6k -movflags +faststart`).
 So the media tests exercise Range, caching and video the same way production does.
+
+`MOCK_PHOTOS=remote` trades the drawn gradients for picsum.photos pictures, for
+screenshots and demos that should look like a feed. It is off by default and
+never touches the network in tests: a refused fetch falls back to the drawing.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 import io
+import os
 import random
 import time
 from collections.abc import Iterator
@@ -104,15 +109,26 @@ class MockProvider:
 
     def _build(self, count: int) -> None:
         rng = self._rng
-        names = ["athens", "luben", "souvlaki", "naxos", "reels", "film", "books",
-                 "coffee", "hike", "studio", "radio", "kitchen"]
+        # Readable handles and captions: this data ends up on the demo screens,
+        # and "souvlaki2 post 3" reads like a broken template, not a feed.
+        names = ["athens.walks", "luben.photos", "souvlaki.lab", "naxos.daily",
+                 "reels.mk", "film.room", "books.on", "coffee.notes", "hike.up",
+                 "studio.nine", "radio.ath", "kitchen.tales"]
+        captions = ["Πρωινός καφές, αργός ρυθμός.", "Χθες το βράδυ, Αθήνα.",
+                    "Νέο άλμπουμ, πρώτη ακρόαση.", "Δοκιμές στο στούντιο.",
+                    "Θάλασσα και τίποτα άλλο.", "Ακόμη ένα ηλιοβασίλεμα.",
+                    "Στο τραπέζι· όλα τα υπόλοιπα αργούν.", "Τρεις μέρες εκτός.",
+                    "Το φως του μεσημεριού.", "Μια βόλτα πριν τη βροχή.",
+                    "Κυριακή, χωρίς πρόγραμμα.", "Λεπτομέρειες."]
         self.accounts: list[AccountDTO] = []
         self.posts: dict[str, list[PostDTO]] = {}
         for i in range(count):
             pk = str(10_000_000 + i)
-            name = f"{names[i % len(names)]}{i}"
+            handle = names[i % len(names)]
+            name = handle
             self.accounts.append(AccountDTO(
-                pk=pk, username=name, full_name=name.title(),
+                pk=pk, username=handle,
+                full_name=handle.replace(".", " ").title(),
                 pic_url=f"mock://avatar/{pk}", is_following=True,
                 muted=i == 5))
             posts: list[PostDTO] = []
@@ -137,7 +153,8 @@ class MockProvider:
                 posts.append(PostDTO(
                     pk=pkp, account_pk=pk, media_type=mt, product_type=pt,
                     taken_at=taken, code=f"C{pkp}",
-                    caption=f"{name} post {j}", like_count=rng.randint(0, 900),
+                    caption=captions[(i + j) % len(captions)],
+                    like_count=rng.randint(0, 900),
                     comment_count=rng.randint(0, 40),
                     permalink=f"https://www.instagram.com/p/C{pkp}/",
                     resources=res,
@@ -259,6 +276,26 @@ def _copy(p: PostDTO) -> PostDTO:
     )
 
 
+PHOTOS = os.environ.get("MOCK_PHOTOS", "").strip()
+_PHOTO_CACHE: dict[tuple[int, int, str], bytes | None] = {}
+
+
+def _remote_photo(w: int, h: int, seed: str) -> bytes | None:
+    """A real picture from picsum.photos (Unsplash, free to use), or None."""
+    key = (w, h, seed)
+    if key not in _PHOTO_CACHE:
+        try:
+            import httpx
+            # The seed is a URL ("mock://image/...") and picsum takes a slug.
+            pick = hashlib.sha1(seed.encode()).hexdigest()[:16]
+            r = httpx.get(f"https://picsum.photos/seed/{pick}/{w}/{h}",
+                          timeout=20, follow_redirects=True)
+            _PHOTO_CACHE[key] = r.content if r.status_code == 200 else None
+        except Exception:                      # noqa: BLE001 — a demo, not data
+            _PHOTO_CACHE[key] = None
+    return _PHOTO_CACHE[key]
+
+
 def _jpeg(w: int, h: int, seed: str) -> bytes:
     """A picture-shaped placeholder: two seeded colours, a soft disc, no text.
 
@@ -266,6 +303,11 @@ def _jpeg(w: int, h: int, seed: str) -> bytes:
     seen (README screenshots, a seeded deck on a friend's machine), and a
     gradient costs the same two minutes of code.
     """
+    if PHOTOS:
+        fetched = _remote_photo(min(w, 1200), min(h, 1200), seed)
+        if fetched:
+            return fetched
+
     from PIL import Image, ImageDraw
 
     d = hashlib.sha1(seed.encode()).digest()

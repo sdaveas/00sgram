@@ -8,7 +8,7 @@ It runs on your own machine, on your own account, through a real Chromium that
 is logged in once. There is no cookie to copy and no password login (Instagram
 refuses those for new sessions anyway).
 
-![The deck on a phone](docs/img/deck-phone.png)
+![The deck on a phone](docs/img/deck.gif)
 
 ## What works
 
@@ -162,11 +162,16 @@ web`); front-end-only changes deploy with `sh scripts/deploy-static.sh`.
 A demo instance with fake data, no Instagram account required:
 
 ```sh
-PROVIDER=mock DATA_DIR=./demo ~/venvs/00sgram/bin/python -m app.dev_seed
-PROVIDER=mock DATA_DIR=./demo ~/venvs/00sgram/bin/python -m uvicorn app.asgi:app --port 8099
+export PROVIDER=mock MOCK_PHOTOS=remote DATA_DIR=./demo
+~/venvs/00sgram/bin/python -m app.dev_seed
+~/venvs/00sgram/bin/python -m uvicorn app.asgi:app --port 8099
 ```
 
-The screenshots above were taken from exactly that.
+`MOCK_PHOTOS=remote` swaps the drawn placeholders for pictures from
+[picsum.photos](https://picsum.photos) (Unsplash, free to use), which is how the
+screenshots and the clip above were made — no real account, no real people.
+
+![The deck on a desktop](docs/img/deck-desktop.jpg)
 
 ## Risks, said plainly
 
