@@ -557,6 +557,8 @@ def create_app(config: Config | None = None) -> FastAPI:
             "last_at": row.get("last_ts"),
             "last_text": row.get("last_text") or "",
             "last_kind": row.get("last_kind") or "",
+            # The relay's change detector: an exact id, not a preview string.
+            "last_id": row.get("last_id") or "",
         } for row in rows]
         body = {"configured": True, "chats": chats}
         if stale:
@@ -574,8 +576,12 @@ def create_app(config: Config | None = None) -> FastAPI:
                 "cursor": max((m["at"] for m in messages), default=since)}
 
     @app.get("/api/chat/thread")
-    def chat_thread(id: str, a: Auth = Depends(auth)):
-        """One conversation from the store; Instagram at most once per 8 s."""
+    def chat_thread(id: str, read: bool = True, a: Auth = Depends(auth)):
+        """One conversation from the store; Instagram at most once per 8 s.
+
+        `read=0` is for the relay: forwarding a DM must not clear the dot the
+        reader has not cleared on their own screen.
+        """
         now = int(time.time())
         key = f"ig_chat_fetch:{id}"
         fetched_at = int(store.meta_json(conn, key, 0) or 0)
@@ -592,7 +598,8 @@ def create_app(config: Config | None = None) -> FastAPI:
             if fetched is not None:
                 store.save_ig_msgs(conn, id, fetched)
                 store.set_meta_json(conn, key, now)
-        store.ig_mark_read(conn, id, now)
+        if read:
+            store.ig_mark_read(conn, id, now)
         row = _chat_row(id)
         return {"chat_id": id, "title": _chat_title(row), "kind": _chat_kind(row),
                 "messages": [{**m, "links": [m["url"]] if m["url"] else []}

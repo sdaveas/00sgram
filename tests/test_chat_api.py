@@ -132,9 +132,11 @@ def test_the_list_is_shaped_for_the_screen_and_a_fresh_install_has_no_dots(clien
     by_id = {c["chat_id"]: c for c in body["chats"]}
     assert list(by_id) == ["t1", "t2", "t3"]
     assert list(by_id["t1"]) == ["chat_id", "title", "kind", "unread", "last_at",
-                                 "last_text", "last_kind"]
+                                 "last_text", "last_kind", "last_id"]
     assert (by_id["t1"]["title"], by_id["t1"]["kind"]) == ("Mary Levine", "dm")
     assert (by_id["t1"]["last_text"], by_id["t1"]["last_kind"]) == ("γεια", "text")
+    # The exact newest message id, which is what the relay diffs on.
+    assert by_id["t1"]["last_id"] == "t1-last"
     # No thread_title: the other participant, else up to three of them.
     assert by_id["t2"]["title"] == "mary__levine"
     assert by_id["t3"]["title"] == "nikos, maria"
@@ -191,6 +193,20 @@ def test_a_thread_is_stored_and_read_back_in_the_store_shape(client):
     # Opening a conversation means read here; Instagram hears nothing about it.
     assert store.ig_read_at(conn, "t1") >= NOW
     assert chats(client)["t1"]["unread"] == 0
+
+
+def test_the_relay_reading_a_thread_does_not_clear_the_dot(client):
+    conn = client.app.state.conn
+    use_provider(client, FakeIg(
+        [ig_thread("t1", "Mary Levine")],
+        {"t1": [ig_message("m1", "γεια", NOW - 60)]}))
+    chats(client)
+    before = store.ig_read_at(conn, "t1")
+
+    body = client.get("/api/chat/thread",
+                      params={"id": "t1", "read": "0"}).json()
+    assert [m["msg_id"] for m in body["messages"]] == ["m1"]
+    assert store.ig_read_at(conn, "t1") == before
 
 
 def test_a_second_thread_call_within_eight_seconds_does_not_ask_instagram(client):
