@@ -1,0 +1,14 @@
+services:
+  web:
+    build: .
+    image: 00sgram:local
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8091:8080"
+    volumes:
+      # The volume source, not the in-container path: a Mac can put it under
+      # ./data without editing this file, and the Pi keeps its default.
+      - ${DATA_HOME:-/srv/00sgram/data}:/data
+    # One process. SQLite lives on the same volume, no host networking, and the
+    # app is on the same LAN as Home Assistant without touching it.

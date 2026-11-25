@@ -1,0 +1,493 @@
+/* One appearance, no theme switch. Every colour below is a token; a colour
+   written anywhere else is a bug. Radius is 0, spacing is a multiple of 4px,
+   and the only animated thing in the app is the loading spinner. */
+:root {
+  --desktop: #008080; --face: #c0c0c0; --face-hi: #dfdfdf; --hi: #ffffff;
+  --lo: #808080; --dark: #404040; --line: #a0a0a0; --field: #ffffff;
+  --title: #000080; --text: #000000; --muted: #404040; --disabled: #808080;
+  --sel: #000080; --sel-text: #ffffff; --link: #0000ee; --ok: #006000;
+  --danger: #a40000;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--desktop); color: var(--text);
+  font: 15px/1.35 Tahoma, Verdana, "DejaVu Sans", "Noto Sans", Roboto,
+        "Segoe UI", sans-serif;
+}
+h1, h2, h3, p, ul { margin: 0; }
+a { color: var(--link); }
+img, video { max-width: 100%; }
+[hidden] { display: none !important; }
+
+/* --------------------------------------------------------------- controls */
+/* Raised: white top-left, dark bottom-right, one inner highlight each. */
+button, select, input[type=range] {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--face);
+  border: 1px solid; border-color: var(--hi) var(--dark) var(--dark) var(--hi);
+  box-shadow: inset -1px -1px 0 var(--lo), inset 1px 1px 0 var(--face-hi);
+  border-radius: 0; padding: 4px 8px; min-height: 44px; cursor: pointer;
+}
+input, textarea {
+  font: inherit; color: var(--text); background: var(--field);
+  border: 1px solid; border-color: var(--lo) var(--hi) var(--hi) var(--lo);
+  box-shadow: inset 1px 1px 0 var(--dark), inset -1px -1px 0 var(--face-hi);
+  border-radius: 0; padding: 4px 8px; min-height: 44px; width: 100%;
+}
+
+/* Pressed: the bevel flips to sunken and the label moves 1px right, 1px down.
+   The padding swap keeps the box exactly the same size while it moves. */
+button:active:not([disabled]):not([aria-disabled="true"]) {
+  border-color: var(--lo) var(--hi) var(--hi) var(--lo);
+  box-shadow: inset 1px 1px 0 var(--dark), inset -1px -1px 0 var(--face-hi);
+  padding: 5px 7px 3px 9px;
+}
+
+/* Disabled stays legible and never hides: grey text with a white under-shadow,
+   no hover change, no press. Never the `disabled` attribute on a menu item —
+   arrows must still be able to land on it. */
+button[disabled], button[aria-disabled="true"] {
+  color: var(--disabled); text-shadow: 1px 1px 0 var(--hi); cursor: default;
+  background: var(--face);
+}
+
+:focus-visible { outline: 1px dotted #000; outline-offset: -3px; }
+/* The two black screens would draw that black ring on black. `:where` keeps
+   this at zero specificity, so `.browse:focus` below still wins for the deck
+   root — only the controls inside it get the white ring. */
+:where(.browse, .msgs) :focus-visible {
+  outline: 2px solid #fff; outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ frame */
+/* No chrome: the window is one content area, and on a phone it is the phone. */
+#window {
+  display: grid; grid-template-rows: minmax(0, 1fr);
+  height: 100vh; height: 100dvh; background: var(--face);
+  border: 2px solid; border-color: var(--hi) var(--dark) var(--dark) var(--hi);
+  overflow: hidden;
+}
+
+/* Content: the only scroller, never horizontal, 8px of padding. */
+.content { grid-row: 1; min-height: 0; position: relative; overflow-y: auto;
+  overflow-x: hidden; overscroll-behavior: contain; padding: 8px;
+  background: var(--face); }
+
+/* The window only sits on a desktop that can hold it: a phone in landscape is
+   844px wide and 390 tall, and there it is still the whole screen. */
+@media (min-width: 701px) and (min-height: 521px) {
+  body { display: grid; place-items: center; height: 100vh; height: 100dvh; }
+  #window { width: 1200px; height: 760px; }
+}
+
+/* ------------------------------------------------------------ screen title */
+.screen { height: 24px; font-size: 15px; font-weight: bold; line-height: 24px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------- parts */
+.wrap { overflow-wrap: anywhere; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere; }
+.spread { justify-content: space-between; }
+.stack > * + * { margin-top: 8px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.muted { color: var(--muted); }
+/* Said to a screen reader, never drawn: a state that only a colour or a glyph
+   carries is a state half the readers cannot see. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; }
+.small { font-size: 13px; }
+.banner { padding: 8px; background: var(--face);
+  border: 1px solid; border-color: var(--lo) var(--hi) var(--hi) var(--lo); }
+.primary { font-weight: bold; }
+.danger { color: var(--danger); }
+
+/* property sheet (settings, sync) and forms */
+.sheet { padding: 8px; background: var(--face);
+  border: 1px solid; border-color: var(--lo) var(--hi) var(--hi) var(--lo); }
+.field { display: block; margin: 8px 0; }
+select { width: 100%; }
+.login { max-width: 340px; margin: 12vh auto; }
+.login input, .login button { width: 100%; margin-top: 8px; }
+
+/* ------------------------------------------------------- direct messages */
+/* A row is one button: the mark, the name with the preview, the age. The
+   unread mark is the bulletin's — filled square, hollow once read. */
+.inbox { list-style: none; margin: 0; padding: 0; background: var(--field);
+  border: 1px solid; border-color: var(--lo) var(--hi) var(--hi) var(--lo);
+  box-shadow: inset 1px 1px 0 var(--dark), inset -1px -1px 0 var(--face-hi); }
+.inbox-row > button { display: grid; width: 100%; text-align: left;
+  grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px;
+  align-items: center; min-height: 52px; padding: 4px 6px;
+  color: inherit; background: none; border: 0; border-bottom: 1px solid var(--line);
+  box-shadow: none; cursor: pointer; }
+.inbox-row:last-child > button { border-bottom: 0; }
+.inbox-row > button:hover, .inbox-row > button:focus-visible {
+  background: var(--face-hi); }
+.inbox-row > button:active { padding: 4px 6px; box-shadow: none; }
+.inbox-row .mk { width: 8px; height: 8px; background: var(--title); }
+.inbox-row.is-read .mk { background: none; border: 1px solid var(--lo); }
+.inbox-row .nm { display: flex; flex-direction: column; min-width: 0; }
+.inbox-row .who { font-size: 15px; font-weight: bold; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.inbox-row.is-read .who { font-weight: normal; }
+.inbox-row .sub { font-size: 13px; color: var(--muted); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.inbox-row .when { font-size: 13px; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The transcript is lines of words, in the page's order, wrapping — never a
+   chat parody drawn from Instagram's markup. */
+.transcript { max-height: 56vh; overflow: auto; padding: 8px;
+  background: var(--field); border: 1px solid;
+  border-color: var(--lo) var(--hi) var(--hi) var(--lo);
+  box-shadow: inset 1px 1px 0 var(--dark), inset -1px -1px 0 var(--face-hi); }
+.transcript p { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+.transcript p:last-child { margin-bottom: 0; }
+
+/* ----------------------------------------------------------------- browse */
+/* No frame, no page, one card on black. The deck is a native scroller: the
+   platform owns the fling, the snap and the rubber band, so a card can never
+   come to rest half off the glass the way a hand-written gesture does. */
+html.mode-browse { overflow: hidden; overscroll-behavior: none; }
+html.mode-browse body { overflow: hidden; }
+
+.browse {
+  position: fixed; inset: 0; z-index: 40; background: #000; color: #fff;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+}
+.browse:focus { outline: none; }
+
+/* One card per snap point, always: `mandatory` plus `scroll-snap-stop` means a
+   fling cannot skip a post and the deck cannot stop between two. */
+.bstage {
+  height: 100%; overflow-y: auto; overflow-x: hidden;
+  scroll-snap-type: y mandatory; overscroll-behavior: contain;
+  /* Cards are appended below the glass; the deck sets its own position, and
+     the browser's scroll anchoring moving it afterwards is a jump nobody
+     asked for. */
+  overflow-anchor: none;
+  touch-action: pan-y; scrollbar-width: none;
+}
+.bstage::-webkit-scrollbar { display: none; }
+.bslide {
+  height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto;
+  /* One column, exactly the glass. Left as `auto`, the track is sized by the
+     widest thing inside a cell — the transport under a film — and then every
+     album cell is `100%` of that: a three-clip story card drew its picture in
+     the right half of a card 1.6 screens wide, and the seek bar ran off the
+     edge. `100%` is the only width a card may have. */
+  grid-template-columns: 100%;
+}
+.bslide.is-tail { place-content: center; }
+.bcard { min-height: 0; }
+
+/* The album is the same rule turned sideways: one picture per snap point,
+   inside the card the reader is already on. */
+.bpics {
+  display: flex; height: 100%; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  /* `pan-x` alone cancels vertical panning for any touch that starts on the
+     picture, which is most of the glass: the deck could only be swiped from
+     the meta strip underneath. The browser axis-locks at gesture start, so
+     horizontal still means album and vertical still means the next card. */
+  touch-action: pan-x pan-y; scrollbar-width: none;
+}
+.bpics::-webkit-scrollbar { display: none; }
+.bpic {
+  flex: 0 0 100%; height: 100%; min-height: 0;
+  scroll-snap-align: center; scroll-snap-stop: always;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto auto;
+  place-items: center;
+}
+.bmedia { width: 100%; height: 100%; object-fit: contain;
+  /* A film paints nothing until its first frame is decoded, and that gap used
+     to flash black between the poster and the picture. The poster stays
+     underneath, sized like the frame, so the gap shows the still, not a hole. */
+  background-position: center; background-repeat: no-repeat;
+  background-size: contain;
+  /* A picture is not a draggable object here: a native image drag swallows the
+     pointer and leaves the deck feeling dead. */
+  -webkit-user-drag: none; user-select: none; }
+.bfail { margin: 0; padding: 24px; text-align: center; color: #d0d0d0; }
+/* A story card whose segments are still coming: the sentence takes the picture's
+   place, centred in it, so the card has the shape of every other card. */
+.bhold { display: grid; place-content: center; justify-items: center;
+  gap: 12px; padding: 24px; text-align: center; }
+.bhold .bfail { padding: 0; }
+
+/* The description sits under the picture, never over it: nothing is covered by
+   text, so nothing has to be guessed at. */
+.bmeta { padding: 8px 16px 16px; font-size: 14px; }
+
+/* The transport: ours, so it stays where it is put and does not fade out. It
+   rides with its own film, inside the same album cell. */
+.bbar { display: flex; align-items: center; gap: 8px;
+  margin: 0 8px 4px; font-size: 12px;
+  /* Full card width: a transport centred at its own intrinsic width puts the
+     play button in the middle of the glass. `stretch`, not `100%` — the side
+     margins are outside a stretched grid item and inside a 100% one. */
+  justify-self: stretch; }
+.bbar button { flex: 0 0 44px; width: 44px; height: 44px;
+  padding: 0; display: grid; place-items: center; }
+.bbar button svg { width: 16px; height: 16px; display: block; }
+.bbar input[type="range"] { flex: 1 1 auto; min-width: 0; height: 24px;
+  accent-color: #fff; background: none; touch-action: none; }
+.btime { font-variant-numeric: tabular-nums; color: #d8d8d8; white-space: nowrap; }
+.bbar button[disabled] { opacity: .45; }
+/* What the recogniser heard: one line, and no line at all until there is
+   something to say. */
+.bheard { margin: 0; padding: 0 16px 8px; font-size: 12px; color: #d8d8d8;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bheard:empty { display: none; }
+.bheard .btrack { flex: 1 1 auto; min-width: 0; }
+.bheard button, .bheard .bopen { flex: 0 0 44px; width: 44px; height: 44px;
+  padding: 0; display: grid; place-items: center; color: #fff; }
+.bheard .bopen { border: 1px solid #b0b0b0; text-decoration: none; }
+.bwho { font-weight: bold; display: flex; align-items: center; gap: 8px; }
+/* The one round thing in the program: a face is read as a face, not a cell. */
+.bavatar { width: 28px; height: 28px; flex: 0 0 auto; border-radius: 50%;
+  object-fit: cover; background: #222; }
+.bwhen { font-size: 12px; color: #d8d8d8; }
+/* Two lines, and a press lifts them: the clamp property alone does nothing. */
+.bcap {
+  margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; overflow: hidden; cursor: pointer;
+}
+.bcap.is-open { display: block; -webkit-line-clamp: none; }
+
+.browse button { background: rgba(0, 0, 0, .55); color: #fff;
+  border-color: #b0b0b0 #303030 #303030 #b0b0b0; }
+.browse button:active:not([disabled]) { background: rgba(255, 255, 255, .22); }
+/* The deck's two ways off it, in one row: «Νεότερα» throws the deck away with
+   no undo, so it must not share an edge with the exit. The row is positioned
+   against the padding *box*, not the content box, so the safe-area inset that
+   `.browse` pads with does not move it — the offset adds the inset itself. */
+.bchrome { position: absolute; z-index: 2; display: flex; gap: 12px;
+  top: calc(env(safe-area-inset-top, 0px) + 8px); right: 8px; }
+.bchrome button { height: 44px; min-height: 44px; padding: 0 12px;
+  font-size: 13px; }
+
+/* The author's own attachments: tagged accounts, the place, the song. Read-only,
+   and the only links in the deck — `--link` is navy, which is invisible here. */
+/* The control rides the name row: a card's height is the same whether the
+   author attached five things or none, so the picture never changes size from
+   one post to the next. */
+.bwho-name { flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.blinks { flex: 0 0 auto; min-height: 44px; padding: 0 12px; font-size: 13px;
+  font-weight: normal; }
+/* A card with no attachments keeps the control's box, empty and invisible: it
+   is the row that must not change height, not the button. */
+.blinks:empty { visibility: hidden; }
+.blinks-n { color: #bdbdbd; }
+
+/* The sheet that button opens. `<dialog>` is the platform's own modal, so this
+   only says where it sits and what it looks like. */
+.bsheet { margin: auto 0 0; width: 100%; max-width: 100%; max-height: 70vh;
+  border: 0; padding: 0; background: #111; color: #fff;
+  border-radius: 12px 12px 0 0; }
+.bsheet::backdrop { background: rgba(0, 0, 0, .65); }
+.bsheet-h { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid #2a2a2a; }
+.bsheet-h h2 { margin: 0; font-size: 15px; }
+.bsheet-h button { min-height: 44px; padding: 0 12px; font-size: 13px; }
+.bsheet ul { list-style: none; margin: 0; padding: 0 0 env(safe-area-inset-bottom, 0px);
+  overflow-y: auto; }
+.bsheet li { border-top: 1px solid #222; }
+.bsheet li:first-child { border-top: 0; }
+/* A ticket URL is one word to the layout, so it may break anywhere: the sheet
+   scrolls, it does not grow sideways. */
+.bsheet li a, .bsheet-plain { display: block; padding: 12px 16px; font-size: 13px;
+  color: #f2f4fa; text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, .45); text-underline-offset: 3px;
+  overflow-wrap: anywhere; }
+.bsheet-plain { text-decoration: none; color: #d8d8d8; }
+.bsheet-detail { display: block; padding: 0 16px 12px; font-size: 12px;
+  color: #bdbdbd; }
+.bcap a { color: #f2f4fa; text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, .45); text-underline-offset: 2px; }
+/* A caption is not allowed to widen the card either. */
+.bcap { overflow-wrap: anywhere; }
+
+/* How much of this post is still to the right. Five marks, current one lit. */
+.bmarks { display: flex; gap: 5px; margin-top: 6px; }
+.bmark { width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255, 255, 255, .35); }
+.bmark.is-on { background: #fff; }
+
+/* The tail is the unseen run's end: loading, retry, or the way further back. */
+.bend { display: grid; place-content: center; gap: 12px; padding: 24px;
+  text-align: center; }
+.bdone { font-size: 18px; font-weight: bold; }
+.bnone { color: #d0d0d0; }
+.bend .bfail { color: #ff9c9c; padding: 0; }
+
+/* ------------------------------------------------------------ the messages */
+/* Its own glass, like the deck: black, square, one row per conversation and one
+   thread at a time. The list and the thread are the same row of the frame, so
+   only one of them is ever in the DOM's flow; the composer is the last row.
+   Explicit rows, because a hidden note must not slide the scroller up into the
+   note's track. */
+.msgs {
+  position: fixed; inset: 0; z-index: 40; background: #000; color: #fff;
+  font-size: 14px; display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
+}
+.msgs > header { grid-row: 1; }
+.msgs > .msgs-note { grid-row: 2; }
+.msgs > [data-view="list"], .msgs > .mthread { grid-row: 3; min-height: 0; }
+.msgs > .mcomposer { grid-row: 4; }
+
+.msgs-head {
+  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px;
+  background: #000; max-width: 640px; width: 100%; margin-inline: auto;
+}
+.msgs-title {
+  flex: 1 1 auto; min-width: 0; height: 44px; font-size: 15px;
+  font-weight: bold; line-height: 44px; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+/* Glass, not the raised desktop button: this screen is the deck's sibling, so a
+   control on it looks like the deck's controls. */
+.msgs button { background: rgba(0, 0, 0, .55); color: #fff;
+  border-color: #b0b0b0 #303030 #303030 #b0b0b0; }
+.msgs button:active:not([disabled]) { background: rgba(255, 255, 255, .22); }
+.msgs-head button { flex: 0 0 auto; height: 44px; min-height: 44px; }
+/* Nothing to say is no line at all, exactly like the deck's heard line. */
+.msgs-note { margin: 0; padding: 8px 12px; font-size: 13px; color: #d8d8d8; }
+.msgs-note:empty { display: none; }
+.msgs-wait { margin: 0; padding: 12px; font-size: 13px; color: #d8d8d8; }
+
+/* ------------------------------------------------------------------- rows */
+.msgs [data-view="list"] { overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain; }
+.msgs-list { max-width: 640px; margin: 0 auto; list-style: none; padding: 0; }
+.msgs-empty { padding: 16px 12px; font-size: 13px; color: #8e8e8e; }
+.msg-row { border-top: 1px solid #333; }
+.msg-row:first-child { border-top: 0; }
+/* A row is one button: the mark, the name and its preview, the age. */
+.msg-row > button {
+  display: grid; width: 100%; min-height: 52px; padding: 8px 12px; gap: 2px 8px;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-areas: "mk who when" "mk sub when";
+  align-items: center; text-align: left; color: #fff;
+  background: none; border: 0; box-shadow: none;
+}
+.msg-row > button:active:not([disabled]) { padding: 8px 12px; }
+.msg-row .mk { grid-area: mk; width: 8px; height: 8px; background: #fff; }
+.msg-row.is-read .mk { background: none; border: 1px solid #666; }
+.msg-row .who { grid-area: who; font-size: 15px; font-weight: bold;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-row.is-read .who { font-weight: normal; }
+.msg-row .sub { grid-area: sub; font-size: 13px; color: #8e8e8e;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-row .when { grid-area: when; font-size: 12px; color: #8e8e8e;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ----------------------------------------------------------------- thread */
+.mthread {
+  overflow-y: auto; overflow-x: hidden; min-height: 0;
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  overscroll-behavior: contain;
+  max-width: 640px; width: 100%; margin-inline: auto;
+}
+/* A bubble is one message: theirs on the left, ours on the right, no tails. */
+.mb {
+  border-radius: 0; max-width: 78%; font-size: 14px; padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+.mb.theirs { background: #1e1e1e; border: 1px solid #333; align-self: flex-start; }
+.mb.mine { background: #333; align-self: flex-end; }
+.mb-who { display: block; margin-bottom: 2px; font-size: 12px; font-weight: bold;
+  color: #d8d8d8; }
+.mb-text { margin: 0; white-space: pre-wrap; }
+/* Light enough to pass on the darker own-bubble as well as the other one. */
+.mb-at { display: block; margin-top: 4px; font-size: 12px; color: #bdbdbd;
+  font-variant-numeric: tabular-nums; }
+
+/* The link is the affordance: the words above it are the sender's, unaltered.
+   One row per link, because one message can carry two. */
+.mb-links { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.mb-linkrow { display: flex; flex-direction: column; }
+/* Once the card is up the URL has done its job: it is the same post twice. */
+.mb-linkrow.is-done > button { display: none; }
+
+.msgs .mb-linkrow > button {
+  min-height: 0; padding: 0; color: #f2f4fa; font-size: 13px; text-align: left;
+  background: none; border: 0; box-shadow: none; text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, .45); text-underline-offset: 3px;
+}
+.msgs .mb-linkrow > button:active:not([disabled]) { padding: 0; }
+.msgs .mb-linkrow > button[disabled] { color: #6e6e6e; background: none;
+  text-shadow: none; cursor: default; }
+/* An 18px chip is a thumb miss, and its neighbour opens a different page. The
+   box stays the size it looks; the tap area grows into the gap around it, so
+   there is no dead zone between two chips rather than a wider one. */
+.msgs .mb-linkrow > button { position: relative; }
+.msgs .mb-linkrow > button::after {
+  content: ""; position: absolute; inset: -13px -8px;
+}
+/* ponytail: caption links get no expansion — the clamp clips their hit box as
+   well as their words. They are reachable once the caption is opened. */
+
+/* The post a link points at, in the bubble that carried it. */
+.mb-card { margin-top: 8px; background: #000; border: 1px solid #333; }
+.mb-card:empty { display: none; }
+/* The film is a preview inside a bubble, not the whole glass: it leaves room
+   for the caption and the two ways out underneath it. */
+.mb-video, .mb-photo {
+  display: block; width: 100%; max-height: 56vh; object-fit: contain;
+  background: #000;
+}
+/* The marks follow the strip, so the strip has to be one cell per snap point —
+   the same rule the deck's album uses, at bubble scale. */
+.mb-strip { display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y; scrollbar-width: none; }
+.mb-strip::-webkit-scrollbar { display: none; }
+.mb-strip > * { flex: 0 0 100%; scroll-snap-align: center;
+  scroll-snap-stop: always; }
+.mb-marks { display: flex; gap: 5px; padding: 6px 8px; }
+.mb-mark { width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(255, 255, 255, .35); }
+.mb-mark.is-on { background: #fff; }
+.mb-music { margin: 6px 0 0; padding: 0 10px; font-size: 13px; color: #d8d8d8; }
+/* Three lines, like the deck's two: the bubble is a preview, not a page. A
+   press opens it, exactly as the deck's caption does. */
+.mb-cap { margin: 6px 0 0; padding: 0 10px 10px; display: -webkit-box;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  cursor: pointer; }
+.mb-cap.is-open { display: block; -webkit-line-clamp: none; }
+.mb-line { margin: 0; padding: 10px; font-size: 13px; color: #d8d8d8; }
+.mb-card.is-failed .mb-line { color: #ff9c9c; }
+.mb-card button, .mb-foot button { min-height: 44px; font-size: 13px; }
+.mb-card button { margin: 0 10px 10px; }
+.mb-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px; }
+.mb-foot:empty { display: none; }
+.mb-open { font-size: 13px; color: #fff; text-decoration: underline;
+  text-underline-offset: 3px; }
+/* When it is the escape inside a failed card it needs the card's own inset. */
+.mb-card .mb-open { display: inline-block; margin: 0 10px 10px; }
+
+/* --------------------------------------------------------------- composer */
+.mcomposer { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #333;
+  max-width: 640px; width: 100%; margin-inline: auto; }
+.mcomposer input { flex: 1 1 auto; min-width: 0; min-height: 44px;
+  background: #1e1e1e; color: #fff; }
+/* The UA's placeholder grey is 3.6:1 on this field; this is the same grey the
+   rest of the screen uses for its secondary text. */
+.mcomposer input::placeholder { color: #8e8e8e; }
+/* The touch target is the height, not the width: at 44px wide the Greek word
+   for send renders wider than the box and clips. Let the word own the width. */
+.msend { flex: 0 0 auto; width: auto; min-width: 44px; height: 44px;
+  min-height: 44px; padding: 0 12px; font-size: 12px; }
+.msend:active:not([disabled]) { padding: 0 12px; }
+
+/* `:has` is the whole mechanism: no runtime class to keep in sync, and an engine
+   without it just keeps the overlay hiding the desktop teal. */
+html:has(.msgs) body { background: #000; }

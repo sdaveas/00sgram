@@ -1,0 +1,52 @@
+{
+  "num_results": 6,
+  "more_available": true,
+  "next_max_id": "QVFEcGFnZT",
+  "feed_items": [
+    {"media_or_ad": {
+      "pk": "501", "id": "501_1001", "code": "Cad1",
+      "media_type": 1, "product_type": "ad",
+      "taken_at": 1764000600,
+      "user": {"pk": "1001", "username": "athens"},
+      "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/ad.jpg"}]}
+    }},
+    {"media_or_ad": {
+      "pk": "502", "id": "502_1001", "code": "Ccar1",
+      "media_type": 8, "product_type": "feed",
+      "taken_at": 1764000500,
+      "caption": {"text": "two frames"},
+      "like_count": 12, "comment_count": 3,
+      "user": {"pk": "1001", "username": "athens"},
+      "carousel_media": [
+        {"image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/c1.jpg"}]}},
+        {"video_versions": [{"url": "https://scontent.cdninstagram.com/c2.mp4"}],
+         "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/c2.jpg"}]},
+         "video_duration": 9.5}
+      ]
+    }},
+    {"media_or_ad": {
+      "pk": "503", "id": "503_1002", "code": "Cree1",
+      "media_type": 2, "product_type": "clips",
+      "taken_at": 1764000400,
+      "user": {"pk": "1002", "username": "naxos"},
+      "video_versions": [{"url": "https://scontent.cdninstagram.com/r.mp4"}],
+      "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/r.jpg"}]}
+    }},
+    {"story": {"pk": "9001"}},
+    {"media_or_ad": {
+      "pk": "504", "id": "504_1003", "code": "Cph1",
+      "media_type": 1, "product_type": "feed",
+      "taken_at": 1764000300,
+      "user": {"pk": "1003", "username": "coffee"},
+      "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/p1.jpg"}]}
+    }},
+    {"media_or_ad": {
+      "pk": "505", "id": "505_1004", "code": "Cpaid1",
+      "media_type": 1, "product_type": "feed",
+      "is_paid_partnership": true,
+      "taken_at": 1764000200,
+      "user": {"pk": "1004", "username": "books"},
+      "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/paid.jpg"}]}
+    }}
+  ]
+}
