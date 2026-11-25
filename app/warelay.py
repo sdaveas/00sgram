@@ -1,9 +1,9 @@
 """WhatsApp, relayed into one Telegram topic per conversation.
 
-A sibling of `relay.py`, not a generalisation of it: the two apps hand out
-different evidence and the two relays key their state differently. What they
-share is `line_for` (one bubble as one Telegram message), the topic idea, and the
-shape of the daemons.
+A sibling of the Instagram relay (now its own repo), not a generalisation of it:
+the two apps hand out different evidence and the two relays key their state
+differently. What they share is the bubble-formatting idea (`line_for`), the
+topic idea, and the shape of the daemons.
 
 The list row is a *trigger*, never a source of truth. Its preview and timestamp
 only decide which conversations are worth opening; what gets posted is decided by
@@ -23,7 +23,6 @@ import time
 
 from . import store
 from .provider import ProviderError
-from .relay import line_for, outbox_rows
 from .telegram import Telegram, TelegramError
 from .wadirect import Wa
 
@@ -36,6 +35,25 @@ KEEP_IDS = 200              # ids remembered per conversation
 
 class NotLoggedIn(ProviderError):
     """The WhatsApp list is not on screen: still loading, or waiting for a QR."""
+
+
+def line_for(msg: dict, group: bool = False, limit: int = 3500) -> str:
+    """One WhatsApp message as one Telegram message, its link under it.
+
+    A shared post is two facts — what was said and what was sent — and Telegram
+    has nowhere else to put the second, so the permalink goes under the text.
+    A group writes who is speaking; a one-to-one chat has no one else it could be.
+    """
+    text = " ".join((msg.get("text") or "").split())
+    if msg.get("mine"):
+        text = f"εγώ: {text}"
+    sibling = (msg.get("sender") or "").strip()
+    if group and not msg.get("mine") and sibling:
+        text = f"{sibling}: {text}"
+    url = (msg.get("url") or (msg.get("hrefs") or [""])[0] or "").strip()
+    if url and url not in text:
+        text = f"{text}\n{url}" if text else url
+    return text[:limit]
 
 
 def topic_for(tg: Telegram, conn, chat_id: str, name: str,
@@ -235,6 +253,19 @@ def start_wa_relay(config, conn, syncer) -> threading.Event:
 
     threading.Thread(target=loop, name="wa-relay", daemon=True).start()
     return stop
+
+
+def outbox_rows(conn, cursor: int, chat_id: str, limit: int = 5):
+    """What is waiting to be written back, for one group only.
+
+    Topic ids are per group and start low, so a WhatsApp topic and any other
+    group's topic can both be `7`. Without the chat filter this query would hand
+    a WhatsApp topic id to something that owns that number elsewhere.
+    """
+    return list(conn.execute(
+        "SELECT * FROM tg_messages WHERE id > ? AND mine=0"
+        " AND thread_id IS NOT NULL AND chat_id=?"
+        " ORDER BY id LIMIT ?", (int(cursor), chat_id, int(limit))))
 
 
 def start_wa_outbox(config, conn, syncer) -> threading.Event:

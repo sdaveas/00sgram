@@ -5,9 +5,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # The relay is its own service now (`relay`, below). Blanking the token
-      # here is what stops this process from polling Telegram as well; the
-      # service still reads it from .env.
+      # The Telegram relay is now a separate service (`00sgram-relay`, its own
+      # repo) and reads these from the shared .env. Blanking them here stops
+      # this process from long-polling Telegram as well.
       TELEGRAM_TOKEN: ""
       TELEGRAM_RELAY_CHAT: ""
     ports:
@@ -18,27 +18,3 @@ services:
       - ${DATA_HOME:-/srv/00sgram/data}:/data
     # One process. SQLite lives on the same volume, no host networking, and the
     # app is on the same LAN as Home Assistant without touching it.
-
-  # The relay, as its own process: same image, second command, own volume.
-  # It speaks to the app over HTTP (API_URL) and holds only its own state, so
-  # the web app never learns what a Telegram topic is. Opt in with
-  # `docker compose --profile relay up -d`.
-  relay:
-    build: .
-    image: 00sgram:local
-    restart: unless-stopped
-    profiles: ["relay"]
-    command: ["python", "-m", "app.relayd"]
-    env_file: .env
-    environment:
-      API_URL: http://web:8080
-    volumes:
-      - relay:/data
-    depends_on:
-      - web
-    # The image's healthcheck watches port 8080; this process serves none.
-    healthcheck:
-      disable: true
-
-volumes:
-  relay:

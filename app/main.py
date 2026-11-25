@@ -27,11 +27,9 @@ from .chat_sync import start_chat_sync
 from .config import Config
 from .media import MediaStore, unavailable
 from .provider import ProviderError, SessionExpired
-from . import relay
-from .relay import start_outbox, start_reacts, start_relay
 from . import warelay
 from .sync import Syncer, start_scheduler
-from .telegram import Telegram, TelegramError, start_poller
+from .telegram import start_poller
 from .wadirect import Wa
 
 STATIC = Path(__file__).parent / "static"
@@ -140,11 +138,6 @@ class MuteBody(BaseModel):
     muted: bool
 
 
-class SendMessageBody(BaseModel):
-    chat_id: str
-    text: str
-
-
 class ChatSendBody(BaseModel):
     chat_id: str
     text: str
@@ -184,9 +177,6 @@ def create_app(config: Config | None = None) -> FastAPI:
         _thread, stop = start_scheduler(cfg, conn, _app.state.syncer)
         chat_sync = start_chat_sync(cfg, conn, _app.state.syncer)
         poll = start_poller(cfg, conn)
-        relay = start_relay(cfg, conn, _app.state.syncer)
-        outbox = start_outbox(cfg, conn, _app.state.syncer)
-        reacts = start_reacts(cfg, conn, _app.state.syncer)
         wa_relay = warelay.start_wa_relay(cfg, conn, _app.state.syncer)
         wa_outbox = warelay.start_wa_outbox(cfg, conn, _app.state.syncer)
         wa_reacts = warelay.start_wa_reacts(cfg, conn, _app.state.syncer)
@@ -196,8 +186,6 @@ def create_app(config: Config | None = None) -> FastAPI:
             stop.set()
             chat_sync.set()
             poll.set()
-            relay.set()
-            outbox.set()
             wa_relay.set()
             wa_outbox.set()
             wa_reacts.set()
@@ -476,25 +464,6 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     # ------------------------------------------------------------- stories
 
-    # ------------------------------------------------ messages (instagram)
-    #
-    # Instagram's DM REST path is retired, so the provider reads the inbox page
-    # the browser already has. Reading the list changes nothing; opening a
-    # thread marks it read, which is why that is a separate call.
-
-    @app.get("/api/relay/thread")
-    def relay_thread(ig_id: str, a: Auth = Depends(auth)):
-        """One conversation's messages, straight from Instagram's JSON."""
-        with app.state.syncer.borrow() as provider:
-            return {"ig_id": ig_id,
-                    "messages": igd.Direct(provider, conn).messages(ig_id)}
-
-    @app.get("/api/relay/threads")
-    def relay_threads(a: Auth = Depends(auth)):
-        """The conversations Instagram itself reports, from its own JSON."""
-        with app.state.syncer.borrow() as provider:
-            return {"threads": igd.Direct(provider, conn).threads()}
-
     # ------------------------------------------------- chat (instagram, local)
     #
     # The Messages view talks to Instagram through the relay's own reader, and
@@ -673,126 +642,6 @@ def create_app(config: Config | None = None) -> FastAPI:
         except (ProviderError, SessionExpired) as exc:
             raise ApiError("provider", 502, str(exc))
 
-    # ------------------------------------------------- messages (telegram)
-    #
-    # Telegram is the message transport: a daemon long-polls the Bot API into
-    # two tables and these routes only read them. Sending is one attempt, no
-    # retry. The Instagram DM reader is still mounted above.
-
-    def _tg_message(row) -> dict:
-        try:
-            links = json.loads(row["links"] or "[]")
-        except (TypeError, ValueError):
-            links = []
-        return {"msg_id": row["msg_id"], "at": int(row["at"]),
-                "mine": bool(row["mine"]), "who": row["who"] or "",
-                "kind": row["kind"], "text": row["text"],
-                "links": links if isinstance(links, list) else []}
-
-    def _tg_chat(chat_id: str):
-        return conn.execute("SELECT chat_id, title, kind FROM tg_chats WHERE chat_id=?",
-                            (chat_id,)).fetchone()
-
-    @app.get("/api/messages")
-    def messages(a: Auth = Depends(auth)):
-        """No token is a normal state (`configured: false`), never an error."""
-        return {"configured": bool(cfg.telegram_token),
-                "chats": [{"chat_id": r["chat_id"], "title": r["title"],
-                           "kind": r["kind"], "unread": int(r["unread"] or 0),
-                           "last_at": r["last_at"], "last_text": r["last_text"],
-                           "last_kind": r["last_kind"]}
-                          for r in store.tg_chats(conn, limit=40)]}
-
-    @app.get("/api/messages/thread")
-    def messages_thread(chat_id: str, a: Auth = Depends(auth)):
-        """Opened in the app means read here — not by a call to Instagram."""
-        chat = _tg_chat(chat_id)
-        if chat is None:
-            raise ApiError("not_found", 404, "no such chat")
-        rows = store.tg_thread(conn, chat_id)
-        store.tg_mark_read(conn, chat_id,
-                           int(rows[-1]["at"]) if rows else int(time.time()))
-        return {"chat_id": chat_id, "title": chat["title"],
-                "messages": [_tg_message(r) for r in rows]}
-
-    @app.post("/api/messages/send")
-    def messages_send(body: SendMessageBody, a: Auth = Depends(auth)):
-        text = body.text.strip()
-        if not text:
-            raise ApiError("bad_request", 400, "the message is empty")
-        if not cfg.telegram_token:
-            raise ApiError("not_configured", 400, "no telegram token")
-        # The app speaks in the relay chat and nowhere else: a stored row from
-        # some other chat (a stranger's DM, before the poller learned to drop
-        # them) must not turn the portal into a megaphone.
-        homes = {c for c in (cfg.relay_chat, cfg.wa_relay_chat) if c}
-        if homes and body.chat_id not in homes:
-            raise ApiError("forbidden", 403, "not a chat this portal speaks in")
-        try:
-            result = Telegram(cfg.telegram_token).send(body.chat_id, text)
-        except TelegramError as exc:
-            raise ApiError("telegram", 502, str(exc))
-        chat = _tg_chat(body.chat_id)
-        # Ours, so the row is built rather than parsed back out of an update.
-        row = {"chat_id": body.chat_id,
-               "title": chat["title"] if chat else body.chat_id,
-               "kind": chat["kind"] if chat else "dm",
-               "msg_id": str((result or {}).get("message_id")
-                             or f"local-{int(time.time() * 1000)}"),
-               "at": int((result or {}).get("date") or time.time()),
-               "mine": 1, "who": "", "kind_msg": "text", "text": text,
-               "links": iglink.links_in(text)}
-        store.save_tg_message(conn, row)
-        stored = conn.execute(
-            "SELECT * FROM tg_messages WHERE chat_id=? AND msg_id=?",
-            (row["chat_id"], row["msg_id"])).fetchone()
-        return {"message": _tg_message(stored)}
-
-    @app.post("/api/relay/topics")
-    def relay_topics(n: int = 5, a: Auth = Depends(auth)):
-        """A topic for each of the newest N conversations, before anything arrives.
-
-        The relay makes topics on first sight of a message; this is the same
-        call without waiting, so the group looks like the inbox from minute one.
-        Nothing is sent into the topics — an empty topic is the point.
-        """
-        if not (cfg.telegram_token and cfg.relay_chat):
-            raise ApiError("not_configured", 400, "relay is off")
-        try:
-            with app.state.syncer.borrow() as provider:
-                rows = provider.inbox()
-        except (ProviderError, SessionExpired) as exc:
-            raise ApiError("provider", 502, str(exc))
-        tg = Telegram(cfg.telegram_token)
-        made = []
-        for row in rows[:max(0, min(int(n), 20))]:
-            name = (row.get("name") or "").strip()
-            if not name:
-                continue
-            try:
-                thread_id = relay.topic_for(tg, conn, cfg.relay_chat, name)
-            except TelegramError as exc:
-                raise ApiError("telegram", 502, str(exc))
-            if thread_id:
-                made.append({"name": name, "thread_id": thread_id})
-        return {"made": made, "seen": len(rows)}
-
-    @app.post("/api/relay/probe")
-    def relay_probe(name: str = "", path: str = "", url: str = "",
-                    a: Auth = Depends(auth)):
-        try:
-            with app.state.syncer.borrow() as provider:
-                if url:
-                    return provider.fetch_probe(url)
-                return provider.probe(name, path)
-        except (ProviderError, SessionExpired) as exc:
-            raise ApiError("provider", 502, str(exc))
-
-    @app.get("/api/relay/sent")
-    def relay_sent(n: int = 20, a: Auth = Depends(auth)):
-        """The last blocks the relay handed to Telegram, newest last."""
-        return {"sent": (store.meta_json(conn, "ig_sent", []) or [])[-max(1, min(n, 50)):]}
-
     @app.get("/api/wa/qr")
     def wa_qr(a: Auth = Depends(auth)):
         """The WhatsApp page as a PNG: the login QR, for the one-time scan.
@@ -811,69 +660,6 @@ def create_app(config: Config | None = None) -> FastAPI:
             raise ApiError("provider", 502, str(exc))
         return FileResponse(path, media_type="image/png",
                             headers={"x-wa-qr": "1" if qr_showing else "0"})
-
-    @app.post("/api/relay/backfill")
-    def relay_backfill(n: int = 5, dry: bool = False, only: str = "",
-                       max_weeks: float = 26, a: Auth = Depends(auth)):
-        """Fill the newest N topics with their conversation, oldest first.
-
-        Read from Instagram's own JSON, so this costs no read receipt and no
-        navigation. `dry=1` reads and counts without sending — the way to check
-        what will land in the group before it lands.
-        """
-        if not (cfg.telegram_token and cfg.relay_chat):
-            raise ApiError("not_configured", 400, "relay is off")
-        tg = Telegram(cfg.telegram_token)
-        try:
-            with app.state.syncer.borrow() as provider:
-                direct = igd.Direct(provider, conn)
-                threads = direct.threads()
-                if only:
-                    want = only.strip().lower()
-                    threads = [t for t in threads
-                               if want in (t["name"] or "").lower()
-                               or any(want in u.lower() for u in (t["users"] or {}).values())]
-                chosen = threads[:max(0, min(int(n), 20))]
-                loaded = [(t, direct.messages(t["id"])) for t in chosen]
-        except (ProviderError, SessionExpired) as exc:
-            raise ApiError("provider", 502, str(exc))
-        report = []
-        for thread, msgs in loaded:
-            weeks = (time.time() - (thread.get("last_ts") or 0)) / 604800
-            if weeks > max_weeks and not only:
-                report.append({"name": thread["name"], "ig_id": thread["id"],
-                               "skipped": f"older than {max_weeks:g} weeks"})
-                continue
-            blocks = relay.batches(msgs, group=bool(thread.get("group")))
-            sent = 0
-            if not dry:
-                thread_id = relay.topic_for(tg, conn, cfg.relay_chat,
-                                            thread["name"] or thread["id"],
-                                            create=True, ig_id=thread["id"])
-                for i, block in enumerate(blocks[:8]):
-                    try:
-                        # One block is the usual case: it is the topic's history
-                        # and a re-run rewrites it instead of adding a copy.
-                        if i == 0:
-                            relay.send_block(tg, conn, cfg.relay_chat, thread_id,
-                                             thread["name"], block)
-                        else:
-                            tg.send(cfg.relay_chat, block, thread_id=thread_id)
-                    except TelegramError as exc:
-                        raise ApiError("telegram", 502, str(exc))
-                    sent += 1
-                    time.sleep(1.5)
-            report.append({"name": thread["name"], "ig_id": thread["id"],
-                           "thread_id": relay.topic_for(tg, conn, cfg.relay_chat,
-                                                        thread["name"] or thread["id"],
-                                                        create=False,
-                                                        ig_id=thread["id"]) if dry else None,
-                           "last_ts": thread.get("last_ts"),
-                           "messages": len(msgs),
-                           "mine": sum(1 for m in msgs if m["mine"]),
-                           "blocks": len(blocks), "sent": sent,
-                           "sample": msgs[:4]})
-        return {"dry": bool(dry), "topics": report}
 
     # --------------------------------------------------------------- resolve
 

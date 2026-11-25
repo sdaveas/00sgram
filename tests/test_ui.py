@@ -132,10 +132,8 @@ def test_the_program_writes_only_seen(client):
     assert '/done' in browse_js, "leaving a story card finishes that account"
     # The card's way out to Instagram is a plain outbound link, not a write.
     assert 'rel="noopener"' in views_js, "the link out carries rel=noopener"
-    assert '/api/chat/send' in views_js, \
-        "the chat screen sends a message, and that is its only POST"
-    assert '/api/messages' not in views_js, \
-        "the chat screen talks to Instagram's own routes, not the Telegram mirror"
+    for path in ("/api/chat", "/api/chat/thread", "/api/chat/send"):
+        assert path in views_js, f"the chat screen talks to {path}"
 
 
 def test_no_dead_vocabulary(client):

@@ -138,30 +138,11 @@ What it does **not** do yet: attachments (a shared post arrives as its
 permalink), and read receipts on Instagram — opening a thread clears the dot
 here, not on your phone.
 
-### The Telegram mirror (optional, experimental)
+### The Telegram mirror
 
-The same conversations can be mirrored into a Telegram forum group — one topic
-per person — and answered from there. It runs as its **own service**, not inside
-the app: `python -m app.relayd` talks HTTP to the app and keeps its own SQLite,
-so the core never learns what a Telegram topic is.
-
-```sh
-# .env: TELEGRAM_TOKEN=..., TELEGRAM_RELAY_CHAT=-100...
-docker compose --profile relay up -d
-```
-
-On an existing install, adopt the topics the old in-process relay made, or the
-service will create a second set:
-
-```sh
-docker compose --profile relay run --rm \
-  -v "$PWD/data:/appdata:ro" relay \
-  python -m app.relayd --import-topics /appdata/00sgram.sqlite3
-```
-
-What it does **not** do yet: reactions, history backfill, attachments. Anything
-that messages the bot outside that one chat is dropped before it is stored;
-replies sent from Telegram go out as you, through the same browser session.
+The mirror is a separate service in the relay repo: it keeps its own state (the
+topics and the topics mapping) and talks to the app over the `/api/chat` API, so
+nothing in this repo knows what a Telegram topic is.
 
 ## Development
 
