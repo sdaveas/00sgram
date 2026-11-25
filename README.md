@@ -103,10 +103,6 @@ The app is a plain web page; add it to your home screen and it behaves like an
 app. On the same LAN use the machine's address — `http://192.168.1.50:8091` —
 not `localhost`.
 
-The first screen you see when the session is cold:
-
-![Login](docs/img/login.png)
-
 ## Configuration
 
 Everything lives in `.env`; `docker compose up -d` after a change re-reads it.
@@ -165,9 +161,7 @@ export PROVIDER=mock MOCK_PHOTOS=remote DATA_DIR=./demo
 
 `MOCK_PHOTOS=remote` swaps the drawn placeholders for pictures from
 [picsum.photos](https://picsum.photos) (Unsplash, free to use), which is how the
-screenshots and the clip above were made — no real account, no real people.
-
-![The deck on a desktop](docs/img/deck-desktop.jpg)
+clip above was made — no real account, no real people.
 
 ## Risks, said plainly
 
