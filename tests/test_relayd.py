@@ -202,3 +202,17 @@ def test_a_topic_we_did_not_make_is_not_sent_to(conn):
     assert pages.requests == []
     # Skipped is still considered: the cursor moves past it.
     assert store.meta_json(conn, "ig_outbox") == 1
+
+
+def test_the_topics_the_old_relay_made_are_adopted_once(conn, tmp_path):
+    old = store.connect(tmp_path / "app.sqlite3")
+    store.init(old)
+    store.save_ig_thread(old, "Mary Levine", 7, ig_id="t1")
+    store.save_ig_thread(old, "the group", 12, ig_id="t2")
+    old.close()
+
+    assert relayd.import_topics(tmp_path / "app.sqlite3", conn) == 2
+    assert conn.execute("SELECT thread_id FROM ig_threads WHERE ig_id='t2'"
+                        ).fetchone()["thread_id"] == 12
+    # A second run is a no-op: the same conversation keeps its topic.
+    assert relayd.import_topics(tmp_path / "app.sqlite3", conn) == 0

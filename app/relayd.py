@@ -29,6 +29,7 @@ import logging
 import os
 import signal
 import sqlite3
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,9 +198,47 @@ def outbound_loop(stop: threading.Event, conn: sqlite3.Connection, api: Api,
         stop.wait(OUTBOUND_INTERVAL)
 
 
+def import_topics(src: Path | str, conn: sqlite3.Connection) -> int:
+    """Adopt the topics the in-process relay already made, before its first pass.
+
+    Without this the service's empty database looks like a fresh install: the
+    primed rule adopts the inbox (so nothing is replayed) but `topic_for` then
+    creates a *second* topic for every conversation. Read-only on the source,
+    idempotent on the target.
+    """
+    src = Path(src)
+    if not src.exists():
+        raise FileNotFoundError(f"no such database: {src}")
+    other = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    rows = other.execute("SELECT name, thread_id, ig_id FROM ig_threads").fetchall()
+    other.close()
+    saved = 0
+    for name, thread_id, ig_id in rows:
+        known = conn.execute("SELECT thread_id FROM ig_threads WHERE ig_id=?",
+                             (ig_id,)).fetchone() if ig_id else None
+        if known:
+            continue
+        store.save_ig_thread(conn, name, int(thread_id), ig_id=ig_id or "")
+        saved += 1
+    return saved
+
+
 def main(env: dict[str, str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    if len(sys.argv) == 3 and sys.argv[1] == "--import-topics":
+        cfg = Settings.from_env(env)
+        cfg.db.parent.mkdir(parents=True, exist_ok=True)
+        conn = store.connect(cfg.db)
+        store.init(conn)
+        try:
+            count = import_topics(sys.argv[2], conn)
+        except FileNotFoundError as exc:
+            log.error("%s", exc)
+            return 1
+        print(f"imported {count} topic(s) into {cfg.db}")
+        conn.close()
+        return 0
     cfg = Settings.from_env(env)
     missing = [key for key in ("api_token", "telegram_token", "relay_chat")
                if not getattr(cfg, key)]
