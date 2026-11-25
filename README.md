@@ -22,7 +22,7 @@ refuses those for new sessions anyway).
 | «Παλαιότερα» | Older posts, by day, from the end of the deck. Only cards whose media are actually cached. |
 | Media | Images and videos proxied through the app and cached on disk, with a budget (default 1 GB, oldest evicted first). |
 | Sync | Every 30 min, plus a weekly history backfill. |
-| Messages | Your Instagram DMs, read and sent in the app. The [Telegram mirror](https://github.com/sdaveas/00sgram-relay) is an optional addon. |
+| Messages | Your Instagram DMs, read and sent in the app. The [Telegram mirror](https://github.com/sdaveas/tg-ig-relayer) is an optional addon. |
 
 The interface is in Greek; the copy lives in one table
 (`app/static/str.js`).
@@ -140,7 +140,7 @@ here, not on your phone.
 
 ### The Telegram mirror (addon)
 
-The mirror lives in its own repo: **[00sgram-relay](https://github.com/sdaveas/00sgram-relay)**.
+The mirror lives in its own repo: **[tg-ig-relayer](https://github.com/sdaveas/tg-ig-relayer)**.
 It is a separate service that keeps its own state (the topics and their mapping)
 and talks to the app over the `/api/chat` API, so nothing in this repo knows what
 a Telegram topic is.

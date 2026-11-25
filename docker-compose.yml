@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # The Telegram relay is now a separate service (`00sgram-relay`, its own
+      # The Telegram relay is now a separate service (`tg-ig-relayer`, its own
       # repo) and reads these from the shared .env. Blanking them here stops
       # this process from long-polling Telegram as well.
       TELEGRAM_TOKEN: ""
