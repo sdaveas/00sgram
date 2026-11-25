@@ -613,6 +613,31 @@ class BrowserProvider:
         if "/accounts/login" in url:
             raise SessionExpired(NOT_LOGGED_IN)
 
+    def capture(self, path: str, name: str, settle: int = 5000) -> str:
+        """Learn one of the page's own GraphQL requests by opening the page.
+
+        `igd` replays these bodies, and a body is only learnable from the page
+        that fires it — the `doc_id` rotates and nothing else carries the
+        operation name. The match is on the name inside the POST body, which is
+        how the reaction capture has always worked.
+        """
+        self.connect()
+        bodies: list[str] = []
+
+        def note(req) -> None:
+            body = req.post_data or ""
+            if "/api/graphql" in req.url and name in body:
+                bodies.append(body)
+
+        self._page.on("request", note)
+        try:
+            self._open(path, settle=settle)
+            if not bodies:
+                self._page.wait_for_timeout(3000)
+        finally:
+            self._page.remove_listener("request", note)
+        return bodies[-1] if bodies else ""
+
     def _capture_reaction(self, path: str, settle: int) -> str:
         """Learn the reaction mutation by reacting once, then taking it back.
 

@@ -54,7 +54,8 @@ class Pages:
         body = json.loads(request.content) if request.content else None
         self.requests.append({"method": request.method, "path": request.url.path,
                               "params": dict(request.url.params), "body": body})
-        self.auth.append(request.headers.get("authorization"))
+        self.auth.append((request.headers.get("x-api-token"),
+                          request.headers.get("x-device")))
         if request.url.path == "/api/chat":
             return httpx.Response(200, json={"configured": True, "chats": self.chats})
         if request.url.path == "/api/chat/thread":
@@ -113,6 +114,13 @@ def test_settings_are_explicit_and_defaulted():
         ("http://host:1", 5, "/tmp/x.sqlite3", "-100")
 
 
+def test_every_call_carries_the_app_pair_of_headers(conn):
+    pages = Pages(chats=[chat()])
+    pages.api().chats()
+    # A bearer token would be a 401: the app authenticates on this pair.
+    assert pages.auth == [("tok", "relay")]
+
+
 def test_a_thread_becomes_the_shape_relay_once_reads(conn):
     pages = Pages(threads={"t1": [msg("m1", "γεια", NOW - 60)]})
     api = pages.api()
@@ -121,7 +129,7 @@ def test_a_thread_becomes_the_shape_relay_once_reads(conn):
         "id": "m1", "ts": NOW - 60, "mine": False, "sender": "mary__levine",
         "text": "γεια", "url": "", "kind": "text"}]
     assert pages.requests[0]["params"] == {"id": "t1", "read": "0"}
-    assert pages.auth == ["Bearer tok"]      # every call carries the token
+    assert pages.auth[-1] == ("tok", "relay")   # every call carries the pair
 
 
 def test_a_new_instagram_message_lands_once(conn):

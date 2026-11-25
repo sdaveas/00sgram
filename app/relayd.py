@@ -79,7 +79,10 @@ class Api:
                  client: httpx.Client | None = None) -> None:
         self.url = url.rstrip("/")
         self.client = client or httpx.Client(timeout=60)
-        self.client.headers["Authorization"] = f"Bearer {token}"
+        # The app's own header pair, not OAuth: a token without a device is a
+        # 401 by design (`resolve_auth`).
+        self.client.headers["x-api-token"] = token
+        self.client.headers["x-device"] = "relay"
 
     def chats(self) -> list[dict]:
         resp = self.client.get(f"{self.url}/api/chat")
@@ -226,6 +229,9 @@ def import_topics(src: Path | str, conn: sqlite3.Connection) -> int:
 def main(env: dict[str, str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # httpx logs every URL at INFO, and the Bot API carries the token in it.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     if len(sys.argv) == 3 and sys.argv[1] == "--import-topics":
         cfg = Settings.from_env(env)
         cfg.db.parent.mkdir(parents=True, exist_ok=True)
