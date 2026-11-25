@@ -97,10 +97,6 @@ curl -X POST -H "x-api-token: $(grep '^API_TOKEN=' .env | cut -d= -f2-)" \
      -H "x-device: cli" http://localhost:8091/api/sync/run
 ```
 
-When the 24-hour window is empty and everything has been read, the deck says so:
-
-![End of the run](docs/img/deck-end.png)
-
 ## On a phone
 
 The app is a plain web page; add it to your home screen and it behaves like an
